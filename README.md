@@ -1,5 +1,5 @@
 # XMU_TransClassAutoSign
-灵感来自 KrsMt-0113/XMU-Rollcall-bot_qrCode，https://github.com/wilinz/fuck_tronclass_sign等项目
+灵感来自 KrsMt-0113/XMU-Rollcall-bot_qrCode，(https://github.com/wilinz/fuck_tronclass_sign)等项目
 主要添加实现了多地点自动雷达签到和穷举数字签到
 
 - 使用方法
