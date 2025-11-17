@@ -1,0 +1,10 @@
+{
+  "username":"36720232204041",
+  "password":"h7n9220m.",
+  "sendkey": "_这里不动_",
+  "locations": [
+    { "name": "XueWuLou", "latitude": 24.6082, "longitude": 118.3085 },
+    { "name": "XiPian", "latitude": 24.6070, "longitude": 118.2953 },
+    { "name": "TiYuGuan", "latitude": 24.6141, "longitude": 118.3057 }
+  ]
+}
