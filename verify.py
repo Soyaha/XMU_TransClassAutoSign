@@ -1,5 +1,5 @@
 import uuid
-import threading
+import threading, asyncio, aiohttp
 import requests
 import time
 import json
@@ -15,47 +15,75 @@ with open(get_config_path()) as f:
 def pad(i):
     return str(i).zfill(4)
 
-def send_code(driver, rollcall_id):
-    stop_flag = threading.Event()
-    url = f"https://lnt.xmu.edu.cn/api/rollcall/{rollcall_id}/answer_number_rollcall"
+headers = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/120.0.0.0 Safari/537.36"
+    ),
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "zh-CN,zh;q=0.9",
+    "Referer": "https://ids.xmu.edu.cn/authserver/login",
+}
+base_url = "https://lnt.xmu.edu.cn"
+async def send_code_async(session, rollcall_id):
+    cookies = {cookie.name: cookie.value for cookie in session.cookies}
+    url = f"{base_url}/api/rollcall/{rollcall_id}/answer_number_rollcall"
+    found_code = None
+    stop_flag = asyncio.Event()
 
-    def put_request(i, headers, cookies):
+    async def put_request(session, i):
+        nonlocal found_code
         if stop_flag.is_set():
             return None
+
         payload = {
-            "deviceId": str(uuid.uuid1()),
+            "deviceId": str(uuid.uuid4()),
             "numberCode": pad(i)
         }
         try:
-            r = requests.put(url, json=payload, headers=headers, cookies=cookies, timeout=5)
-            if r.status_code == 200:
-                stop_flag.set()
-                return pad(i)
-        except Exception as e:
-            pass
+            async with session.put(url, data=payload, timeout=aiohttp.ClientTimeout(total=5)) as resp:
+                if resp.status == 200:
+                    stop_flag.set()
+                    found_code = pad(i)
+                    return pad(i)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            return None
         return None
-
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Linux; Android 6.0; Nexus 5 Build/MRA58N) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Mobile Safari/537.36 Edg/141.0.0.0",
-        "Content-Type": "application/json"
-    }
-    cookies_list = driver.get_cookies()
-    cookies = {c['name']: c['value'] for c in cookies_list}
-    print("正在遍历签到码...")
+    
     t00 = time.time()
-    with ThreadPoolExecutor(max_workers=200) as executor:
-        futures = [executor.submit(put_request, i, headers, cookies) for i in range(10000)]
-        for f in as_completed(futures):
-            res = f.result()
-            if res is not None:
-                print("签到码:", res)
-                t01 = time.time()
-                print("用时: %.2f 秒" % (t01 - t00))
-                return True
-    t01 = time.time()
-    print("失败。\n用时: %.2f 秒" % (t01 - t00))
-    return False
 
+    connector = aiohttp.TCPConnector(limit=200)
+    async with aiohttp.ClientSession(headers=headers, cookies=cookies, connector=connector) as client_session:
+        tasks = [asyncio.create_task(put_request(client_session, i)) for i in range(10000)]
+        pending = set(tasks)
+        try:
+            while pending:
+                done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
+                for d in done:
+                    try:
+                        res = d.result()
+                    except Exception:
+                        res = None
+                    if res:
+                        for p in pending:
+                            p.cancel()
+                        await asyncio.gather(*pending, return_exceptions=True)
+                        t01 = time.time()
+                        print(f"Code {res} found in {t01 - t00:.2f} seconds.")
+                        return True
+            t01 = time.time()
+            print("Failed. \nDuration: %.2f s" % (t01 - t00))
+            return False
+        finally:
+            for p in pending:
+                p.cancel()
+                await asyncio.gather(*pending, return_exceptions=True)
+
+def send_code(session, rollcall_id):
+    return asyncio.run(send_code_async(session, rollcall_id))
 def send_radar(driver, rollcall_id, latitude, longitude):
     url = f"https://lnt.xmu.edu.cn/api/rollcall/{rollcall_id}/answer?api_version=1.76"
     headers = {
